@@ -4,6 +4,7 @@ ami-builder is a python based utility that launches an AWS EC2 instance using a 
 
 Config files are stored in ./configs 
 Command files are stored in ./command_files. They will be run in order listed in the yaml file.
+You will need to create a ./keys directory and add your AWS PEM there. Reference this on the command line without the ".pem" suffix.
 
 usage: ami-builder.py [-h] [--region REGION]
                            [--aws_access_key AWS_ACCESS_KEY]
@@ -85,4 +86,4 @@ This will use the config file "genesis-ami.yaml" to build your AMI.
 
 ## Installation
 
-Copy the whole ami-builder directory over to a machine with boto and python2 installed. 
+You may use Tito (https://github.com/dgoodwin/tito) for packaging this as an RPM with the included the spec file. You may also just copy the whole ami-builder directory over to a machine with boto and python2 installed.
