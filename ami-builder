@@ -194,13 +194,17 @@ def execute_repo_install(repo, baseurl):
     sudo("echo \"enabled=1\" >> /etc/yum.repos.d/" + repo + ".repo")
     sudo("echo \"gpgcheck=0\" >> /etc/yum.repos.d/" + repo + ".repo")
 
+def update():
+    print "Performing update ...."
+    deploy(host, "yum --setopt minrate=100 --setopt timeout=300 -y update")
+
         
 
 host = [fabhost]
 env.user=rootuser
 env.key_filename=[sshkey]
 env.connection_attempts=6
-env.timeout=10
+env.timeout=30
 
 
 # Go out and clean up yum repos so we can start fresh
@@ -219,10 +223,11 @@ else:
 
 if args.update_only == True:
 
-    print "Performing update only...."
-    deploy(host, "yum --setopt minrate=100 --setopt timeout=300 -y update") 
+    update()
 
 else:
+    update()
+
     # Install packages
     packages = config['Packages']
     if packages:
@@ -236,8 +241,6 @@ else:
     if pgroups:
         for pgroup in pgroups:
             yum_group_install(host, pgroup)
-
-        deploy(host, "yum --setopt minrate=100 --setopt timeout=300 -y update")
     else:
         print "No package groups to process."
 

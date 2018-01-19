@@ -1,5 +1,5 @@
 Name: ami-builder		
-Version: 0.0.10
+Version: 0.0.11
 Release:	1%{?dist}
 Summary: A utility that manages AMI builds for Sigma	
 
@@ -45,6 +45,10 @@ rm -rf ${RPM_BUILD_ROOT}
 
 
 %changelog
+* Mon Jan 08 2018 Unknown name 0.0.11-1
+- jl:changed timeout higher to account for latency, added update define
+  (root@c-repo-1.sigma.dsci)
+
 * Mon Nov 06 2017 Unknown name 0.0.10-1
 - adding new packages to all ami templates (segfault@sigma.dsci)
 
