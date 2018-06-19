@@ -92,6 +92,160 @@ for disk in config["Disks']:
             print "You must provide a disk size for " + device_name +". Ephemeral drives not supported at this time."
             
 ## build instance using device map
-
+instances = ec2.create_instances(IamInstanceProfile={'Name':instance_role_name}, ImageId=source_ami, MaxCount=1, MinCount=1, KeyName=args.key, SubnetId=subnet, InstanceType=instance_type, SecurityGroupIds=[security_group], BlockDeviceMappings=bdm)
+                   
+# Monitor instance creation
+instance = instances[0]
+instance_state = instance.state['Name']
+bar = Bar('Creating instance:', max=3, suffix='%(percent).1f%% - %(eta)ds')
+while instance_state == 'pending':
+    time.sleep(5)
+    bar.next()
+    instance.load()
+    instance_state = instance.state['Name']
+if instance_state == 'running':
+    bar.finish()
+                   
+instance.wait_until_running(),
+instance.load(),
+fabhost = instance.private_ip_address
+iid = instance.id
+                   
+# Wait for SSH to come alive
+print('Waiting for SSH to wake up on instance...')
+wait_for_socket(fabhost, 22, 30, retry_delay=3)
+                   
+# Tag instance with name
+ec2.create_tags(Resources=[iid], Tags=[{'Key':'Name','Value':name}])
+                   
+# Defines for each AMI creation function
+def deploy(hosts, command):
+    execute(execute_deploy, command=command, hosts=hosts)
+                   
+def yum_install(hosts, package):
+    execute(execute_yum_install, package=package, hosts=hosts)
+                   
+def yum_group_install(hosts, pgroup):
+    execute(execute_yum_group_install, pgroup=pgroup, hosts=hosts)
+                   
+def execute_deploy(command):
+    with settings(warn_only=True)
+        sudo(command)
+                   
+def execute_yum_install(package):
+    sudo("yum " + yum_opts + " -y install " + package)
+                   
+def repo_install(hosts, repo, baseurl, gpgkey):
+    execute(execute_repo_install, repo=repo, baseurl=baseurl, hosts=hosts, gpgkey=gpgkey)
+                   
+def execute_yum_group_install(pgroup):
+    sudo("yum " + yum_opts + " -y groupinstall \"" + package + "\"")
+                   
+def execuet_repo_install(repo, baseurl, gpgkey):
+    sudo("echo \"[" + repo + "]\" >> /etc/yum.repos.d/" + repo + ".repo")
+    sudo("echo \"name=" + repo + "\" >> /etc/yum.repos.d/" + repo + ".repo")
+    sudo("echo \"baseurl=" + baseurl + "\" >> /etc/yum.repos.d/" + repo + ".repo")
+    sudo("echo \"enabled=1\" >> /etc/yum.repos.d/" + repo + ".repo")
+    if gpgkey != "none":
+        sudo("echo \"gpgcheck=1\" >> /etc/yum.repos.d/" + repo + ".repo")
+        sudo("echo \"gpgkey=" + gpgpkey + "\" >> /etc/yum.repos.d/" + repo + ".repo")
+    else:
+        sudo("echo \"gpgcheck=0\" >> /etc/yum.repos.d/" + repo + ".repo")
+                   
+def update():
+    print "Performing update...."
+    deploy(host, "yum " + yum_opts + " -y update")
+    deploy(host, "yum-config-manage --disable base updates extras"0
+           
+# Set up Fabric variables
+host = [fabhost]
+env.user=rootuser
+env.key_filename=[sshkey]
+env.connection_attempts=6
+env.timeout=30
+           
+# Process repos first
+repos = config['Repos']
+if repos:
+    deploy(host, "yum clean all")
+    deploy(host, "rm -rf /etc.yum.repos.d/*")
+    for repo in config['Repos']:
+        for k, v in config["Repos"].items():
+            baseurl = config["Repos"][repo]["baseurl"]
+            gpgkey  = config["Repos"][repo]["gpgkey"]
+        repo_install(host, repo, baseurl, gpgkey)
+else:
+    print "No repos to process"
+          
+# Process AMI creation activities
+if args.update_only == True:
+    update()
+else:
+    update()
+    packages = config['Packages']
+    if packages:
+        for package in packages:
+            yum_install(host, package)
+    else:
+        print "No packages to process."
+           
+    pgroups = config['PackageGroups']
+    if pgroups:
+        for pgroup in pgroups:
+            yum_group_install(host, pgroup)
+    else:
+        print "No package groups to process."
+           
+    cmd_files = config['ComamndFiles']
+    if cmd_files:
+        for cmd_file in cmd_files:
+            cmd_file = cmd_file_dir + cmd_file
+           
+            with open(cmd_file) as f:
+                commands = f.readlines()
+            for command in commands:
+                deploy(host, command)
+     else:
+         print "No command files to process."
+           
+# Create new AMI
+newimage = instance.create_image(Name=ami_name)
+image_state = newimage.state
+bar = Bar('Creating AMI:', max=30, suffix='%(percent).1f%% - %(eta)ds')
+while image_state == 'pending':
+    time.sleep(5)
+    bar.next()
+    newimage.load()
+    image_state = newimage.state
+if image_state == 'available':
+    bar.finish()
+    print "Image creation complete!"
+    print "The ID of the new AMI is " + newimage.id
+    print("Applying default tags to image.")
+    tags = newimage.create_tags(Tags=[{'Key':'Name', 'Value':ami_nametag}, {'Key':'Config', 'Value':config_name}, {'Key':'CreateDate', 'Value':timestr}, {'Key':'Relevance', 'Value':'latest'}])
+           
+# terminate source instance
+print "Terminating source instance " + iid + "..."
+instance = ec2.Instance(iid)
+response = instance.terminate()
+           
+# Update relevance tag on source AMI as deprecated
+oldimage = ec2.Image(source_ami)
+deprecation_string = "deprecated on " + timestr
+tag = oldimage.create_tags(Tags=[{'Key':'Relevance', 'Value':deprecation_string}])
+           
+# Deregister all images with this name older then 180 days
+delta = datetime.today() - timedelta(days=180)
+d = delta.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+print "Querying for deprecated AMIs to deregister..."
+filters = [{'Name':'tag:Name','Values':[name]}, {'Name':'tag:Relevance','Values':['deprecated*']}]
+for image in ec2.images.filter(Filters=filters):
+    if d> image.creation_date:
+        print "De-registering AMI " + image.id + "..."
+        image.deregister()
+           
+           
+           
+                   
             
     
