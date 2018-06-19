@@ -1,0 +1,97 @@
+#!/usr/bin/python2
+
+import argparse
+import socket
+import collections
+import boto3
+from fabric.api import *
+from fabric.tasks import *
+from pprint import pprint
+import re
+import time
+from datetime import datetime, timedelta
+import yaml
+from progress.bar import Bar
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--region", help="AWS region to build your AMI")
+parser.add_argument("--aws_access_key", help="AWS Access Key")
+parser.add_argument("--aws_secret_key", help="AWS Secret Key")
+parser.add_argument("--config", type=str, help="Full path to config file")
+parser.add_argument("--key", help="The SSH private key (must be in ./keys folder and don't include suffix")
+parser.add_argument("--update-only", help="Just run an update",action='store_true')
+parser.add_argument("--deregister", help="De-register source AMI",action='store_true')
+args = parser.parse_args()
+
+timestr = time.strftime("%Y%m%d-%H%M%S")
+config_dir = "./configs/"
+cmd_file_dir = "./commands/"
+key_file_dir = "./keys/"
+yum_opts = "--setopt minrate=100 --setopt timeout=300"
+sshkey = key_file_dir + args.key + ".pem"
+region = args.region
+
+configfile = config_dir + args.config + ".yaml"
+
+with open(configfile, 'r') as c:
+    try:
+        config = yaml.load(c)
+    except yaml.YAMLError as exc:
+        print(exc)
+        
+        
+source_ami = config['source_ami']
+instance_type = config['instance_type']
+instance_role_arn = ''
+instance_role_name = ''
+security_group = config['security_group']
+subnet = config['subnet']
+name = config['name']
+rootuser = config['rootuser']
+ami_name = config['ami_name'] + "-" + timestr
+ami_description = config['ami_description']
+config_name = config['config_name']
+ami_nametag = config_name
+if not region:
+    region = config['region']
+    
+def wait_for_socket(host, port, retries, retry_delay=5):
+    retry_count = 0
+    while retry_count <= retries:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        result = sock.connect_ex((host, port))
+        if result == 0:
+            break
+        else:
+            time.sleep(retry_delay)
+            
+if args.aws_acces_key and args.aws_secret_key:
+    ec2 = boto3.resource('ec2', region_name=region, aws_access_key_id=args.aws_access_key, aws_secret_access_key=args.aws_secret_key)
+else:
+    ec2 = boto3.resource('ec2', region_name=region)
+    
+print "Querying for latest AMI ID..."
+filters = [{'Name':'tag:Name','Values':[config_name]}, {'Name':'tag:Relevance','Values':['latest']}]
+for image in ec2.images.filter(Filters=filters):
+    source_ami = image.id
+    print "Deprecating AMI ID " + source_ami + " and using it as the source for this build"
+    if source_ami is None:
+        source_ami = config['source_ami']
+        print "Latest AMI not found. Using configured AMI ID " + source_ami + "."
+        
+bdm = []
+for disk in config["Disks']:
+    device_name = "/dev/" + disk
+    for k, v in config["Disks"].items():
+        size = config["Disks"][disk]["size"]
+        type = config["Disks"][disk]["type"]
+        check = isinstance(size,int)
+        if check is True:
+            bdm.append({'DeviceName': device_name,'Ebs':{'VolumeSize':size, 'DeleteOnTermination':True, 'VolumeType':type}})
+        else:
+            print "You must provide a disk size for " + device_name +". Ephemeral drives not supported at this time."
+            
+## build instance using device map
+
+            
+    
